@@ -196,15 +196,24 @@ class SuspicionField(DifferentialEquation):
         episode_num = episode if episode is not None else len(self._history)
         state = self._create_state(
             timestamp=len(self._history) * self.dt,
-            episode=episode_num
+            episode=episode_num,
+            diffusion=diffusion,
+            reaction=reaction,
+            suppression=suppression
         )
         
         self._history.append(state)
         return state
     
-    def _create_state(self, timestamp: float, episode: int) -> SuspicionState:
+    def _create_state(
+        self,
+        timestamp: float,
+        episode: int,
+        diffusion: Optional[np.ndarray] = None,
+        reaction: Optional[np.ndarray] = None,
+        suppression: Optional[np.ndarray] = None
+    ) -> SuspicionState:
         """Create state object from current field"""
-        # Find hotspots (suspicion > 0.7)
         hotspots = []
         y_coords, x_coords = np.where(self._field > 0.7)
         for y, x in zip(y_coords[:10], x_coords[:10]):  # Limit to 10
@@ -221,9 +230,9 @@ class SuspicionField(DifferentialEquation):
             episode=episode,
             values={'mean_suspicion': float(np.mean(self._field))},
             metadata={
-                'diffusion': float(np.mean(np.abs(diffusion))) if 'diffusion' in locals() else 0,
-                'reaction': float(np.mean(reaction)) if 'reaction' in locals() else 0,
-                'suppression': float(np.mean(suppression)) if 'suppression' in locals() else 0
+                'diffusion': float(np.mean(np.abs(diffusion))) if diffusion is not None else 0,
+                'reaction': float(np.mean(reaction)) if reaction is not None else 0,
+                'suppression': float(np.mean(suppression)) if suppression is not None else 0
             }
         )
     
