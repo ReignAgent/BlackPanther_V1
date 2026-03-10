@@ -29,3 +29,5 @@ BlackPanther V2 is an AI-powered autonomous penetration testing agent that uses 
 4. CLI Interface
 5. Docker Integration
 6. Testing & Documentation
+
+## By: ReignAgent
