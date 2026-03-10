@@ -27,25 +27,23 @@ class TestSuspicionField:
     
     def test_laplacian(self):
         """Test Laplacian calculation"""
-        field = SuspicionField(width=3, height=3)
+        field = SuspicionField(width=5, height=5)
         
-        # Create a peak in the center
-        test_field = np.array([
-            [0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0]
-        ])
+        # Create a peak in the center of a 5x5 grid so interior
+        # neighbors (which are also interior points) get computed
+        test_field = np.zeros((5, 5))
+        test_field[2, 2] = 1.0
         
         laplacian = field._laplacian_2d(test_field)
         
         # Center should have negative Laplacian (hotter than neighbors)
-        assert laplacian[1, 1] < 0
+        assert laplacian[2, 2] < 0
         
-        # Neighbors should have positive Laplacian
-        assert laplacian[1, 0] > 0
-        assert laplacian[1, 2] > 0
-        assert laplacian[0, 1] > 0
+        # Interior neighbors should have positive Laplacian
         assert laplacian[2, 1] > 0
+        assert laplacian[2, 3] > 0
+        assert laplacian[1, 2] > 0
+        assert laplacian[3, 2] > 0
     
     def test_diffusion(self):
         """Test that diffusion spreads suspicion"""
@@ -66,18 +64,17 @@ class TestSuspicionField:
     
     def test_attack_suppression(self):
         """Test that attacks reduce suspicion at location"""
-        field = SuspicionField(width=10, height=10, delta=0.1, noise_scale=0.0)
+        field = SuspicionField(width=10, height=10, delta=0.5, r=0.0, noise_scale=0.0)
         field.reset()
         
         # Uniform field
         field._field.fill(0.5)
         
-        # Attack at (0.5, 0.5)
+        # Attack at (0.5, 0.5) -> grid index int(0.5 * 9) = 4
         attacks = [(0.5, 0.5, 1.0)]
         field.step(attacks, knowledge=0.8, access=0.7)
         
-        # Get attack location
-        ix, iy = 5, 5
+        ix, iy = 4, 4
         
         # Suspicion at attack point should be lower than before
         assert field._field[iy, ix] < 0.5

@@ -24,7 +24,7 @@ class EquationState:
     timestamp: float
     episode: int
     values: Dict[str, float]
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict, kw_only=True)
 
 
 class DifferentialEquation(ABC):

@@ -19,7 +19,7 @@ class TestKnowledgeEvolution:
         model = KnowledgeEvolution(noise_scale=0.0)
         model.reset()
         initial = model.knowledge
-        model.step(suspicion=0.1, learning_effort=1.0)
+        model.step(suspicion=0.1, learning_action=1.0)
         assert model.knowledge > initial
 
 
