@@ -27,11 +27,29 @@ class Settings(BaseSettings):
     )
 
     # ---- LLM / AI ------------------------------------------------
+    # Provider selection: deepseek, mistral, or auto (tries deepseek first)
+    llm_provider: str = Field("deepseek", description="LLM provider choice: deepseek|mistral")
+
+    # DeepSeek configuration
     deepseek_api_key: str = Field("", description="DeepSeek API key (empty = stub mode)")
     deepseek_base_url: str = Field("https://api.deepseek.com")
     deepseek_model: str = Field("deepseek-coder")
     deepseek_max_tokens: int = Field(2048, ge=64, le=16384)
     deepseek_temperature: float = Field(0.2, ge=0.0, le=2.0)
+
+    # Mistral configuration (free tier alternative)
+    mistral_api_key: str = Field("", description="Mistral API key (free tier)")
+    mistral_base_url: str = Field("https://api.mistral.ai/v1")
+    mistral_model: str = Field("mistral-small-latest")
+    mistral_max_tokens: int = Field(2048, ge=64, le=16384)
+    mistral_temperature: float = Field(0.2, ge=0.0, le=2.0)
+
+    # OpenAI configuration (for GPT-3.5-turbo reports)
+    openai_api_key: str = Field("", description="OpenAI API key for report generation")
+    openai_base_url: str = Field("https://api.openai.com/v1")
+    report_model: str = Field("gpt-3.5-turbo")
+    report_max_tokens: int = Field(4096, ge=64, le=16384)
+    report_temperature: float = Field(0.7, ge=0.0, le=2.0)
 
     # ---- Scanning -------------------------------------------------
     nmap_timing: int = Field(3, ge=0, le=5)
@@ -82,6 +100,15 @@ class Settings(BaseSettings):
         if upper not in allowed:
             raise ValueError(f"log_level must be one of {allowed}, got '{v}'")
         return upper
+
+    @field_validator("llm_provider")
+    @classmethod
+    def _validate_llm_provider(cls, v: str) -> str:
+        allowed = {"deepseek", "mistral"}
+        lower = v.lower()
+        if lower not in allowed:
+            raise ValueError(f"llm_provider must be one of {allowed}, got '{v}'")
+        return lower
 
 
 @lru_cache(maxsize=1)

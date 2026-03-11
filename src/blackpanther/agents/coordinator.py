@@ -5,13 +5,18 @@ agent action the HJB controller re-evaluates the optimal policy so the
 system balances attack intensity against detection risk in real time.
 
 All thresholds and tunables come from ``Settings`` — nothing hardcoded.
+
+Progress events are emitted to:
+  - ProgressConsole (Rich-based CLI display)
+  - WebSocket (for React Native frontend)
+  - Optional callbacks for custom integrations
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 from loguru import logger
@@ -24,12 +29,16 @@ from blackpanther.core.suspicion import SuspicionField
 from blackpanther.settings import Settings, get_settings
 
 from .base import AgentError, AgentResult
+from .console import ProgressConsole, ScanProgressTracker, TaskStatus
 from .exploit import ExploitAgent
 from .interfaces import LLMProvider, ReconBackend, VulnLookup
 from .memory import Experience, MemoryStore
 from .recon import ReconAgent
 from .scanner import ScannerAgent, Vuln
 from .visualizer import Visualizer
+
+
+ProgressCallback = Callable[[str, float, str], None]
 
 
 # ------------------------------------------------------------------
@@ -133,6 +142,10 @@ class Coordinator:
         )
         self._episode = 0
         self._start_time = 0.0
+        
+        self._progress_callbacks: List[ProgressCallback] = []
+        self._progress_tracker: Optional[ScanProgressTracker] = None
+        self._use_rich_console = True
 
     # ------------------------------------------------------------------
     # Factory
@@ -175,6 +188,29 @@ class Coordinator:
 
         return cls(cfg, k_model, s_model, a_model, hjb, memory)
 
+    def add_progress_callback(self, callback: ProgressCallback) -> None:
+        """Add a callback for progress events.
+        
+        Callback signature: (phase: str, progress: float, message: str) -> None
+        """
+        self._progress_callbacks.append(callback)
+
+    def set_progress_tracker(self, tracker: ScanProgressTracker) -> None:
+        """Set the progress tracker for Rich console display."""
+        self._progress_tracker = tracker
+
+    def disable_rich_console(self) -> None:
+        """Disable Rich console output (for API/background usage)."""
+        self._use_rich_console = False
+
+    def _emit_progress(self, phase: str, progress: float, message: str) -> None:
+        """Emit progress event to all registered callbacks."""
+        for callback in self._progress_callbacks:
+            try:
+                callback(phase, progress, message)
+            except Exception as e:
+                logger.warning(f"[coordinator] Progress callback error: {e}")
+
     # ------------------------------------------------------------------
     # Main pipeline
     # ------------------------------------------------------------------
@@ -185,6 +221,8 @@ class Coordinator:
         self._start_time = time.time()
         logger.info("=== Coordinator episode {} on target={} ===", self._episode, target)
 
+        tracker = self._progress_tracker
+
         summary: Dict[str, Any] = {
             "target": target,
             "episode": self._episode,
@@ -194,36 +232,75 @@ class Coordinator:
             "plots": {},
         }
 
-        # Phase 1: Reconnaissance
+        self._emit_progress("initialization", 5.0, "Initializing mathematical models...")
+        if tracker:
+            tracker.start_initialization()
+
+        await asyncio.sleep(0.1)
+        self._emit_progress("initialization", 10.0, "Models initialized")
+        if tracker:
+            tracker.complete_initialization()
+
+        self._emit_progress("recon", 15.0, f"Running nmap scan on {target}...")
+        if tracker:
+            tracker.start_recon(target)
         logger.info("[phase-1] Reconnaissance")
+        
         recon_result = await self._safe_execute(self.recon, target)
         hosts = recon_result.raw_data.get("hosts", [target]) if recon_result else [target]
         summary["hosts"] = hosts
         self._record(self.recon.name, target, recon_result)
         self.viz.add_event(self._elapsed(), "recon", "recon")
         self.viz.plot_all()
+        
+        self._emit_progress("recon", 25.0, f"Found {len(hosts)} hosts")
+        if tracker:
+            tracker.complete_recon(len(hosts))
 
-        # Phase 2: Vulnerability scanning
+        self._emit_progress("scanning", 30.0, f"Scanning {len(hosts)} hosts for vulnerabilities...")
+        if tracker:
+            tracker.start_scanning(len(hosts))
         logger.info("[phase-2] Vulnerability scanning ({} hosts)", len(hosts))
+        
         all_vulns: List[Vuln] = []
-        for host in hosts:
+        for i, host in enumerate(hosts):
+            progress = 30.0 + (i / max(len(hosts), 1)) * 20.0
+            self._emit_progress("scanning", progress, f"Scanning host {host}...")
+            
             services = self._services_for_host(host, recon_result)
             scan_result = await self._safe_execute(self.scanner, host, services=services)
             if scan_result:
                 all_vulns.extend(ScannerAgent.vulns_from_result(scan_result))
                 self._record(self.scanner.name, host, scan_result)
+        
         summary["vulns"] = [v.cve for v in all_vulns]
         self.viz.add_event(self._elapsed(), "scan", "scanner")
         self.viz.plot_all()
+        
+        self._emit_progress("scanning", 50.0, f"Found {len(all_vulns)} vulnerabilities")
+        if tracker:
+            tracker.complete_scanning(len(all_vulns))
 
-        # Phase 3: Exploitation (HJB-guided)
+        self._emit_progress("exploitation", 55.0, "Generating exploits with LLM...")
         logger.info("[phase-3] Exploitation ({} vulns, HJB-guided)", len(all_vulns))
         exploit_count = 0
+        
+        settings = get_settings()
+        current_llm = settings.llm_provider
 
-        for vuln in sorted(all_vulns, key=lambda v: v.severity, reverse=True):
+        vulns_to_exploit = sorted(all_vulns, key=lambda v: v.severity, reverse=True)
+        max_exploits = min(len(vulns_to_exploit), self.cfg.max_exploits_per_run)
+
+        for i, vuln in enumerate(vulns_to_exploit):
             if exploit_count >= self.cfg.max_exploits_per_run:
                 logger.info("[phase-3] exploit cap reached ({})", self.cfg.max_exploits_per_run)
+                self._emit_progress("exploitation", 85.0, f"Exploit cap reached ({self.cfg.max_exploits_per_run})")
                 break
+
+            progress = 55.0 + (i / max(max_exploits, 1)) * 30.0
+            self._emit_progress("exploitation", progress, f"Generating exploit for {vuln.cve}...")
+            if tracker:
+                tracker.start_exploit_generation(current_llm, vuln.cve)
 
             state = self.get_system_state()
             action = self.hjb.get_optimal_action(state.knowledge, state.suspicion, state.access)
@@ -234,9 +311,16 @@ class Coordinator:
                     vuln.cve, vuln.severity, state.suspicion, action.attack_intensity,
                 )
                 exploit_result = await self._safe_execute(self.exploit, target, vuln=vuln)
+                
                 if exploit_result and exploit_result.success:
                     summary["exploits"].append(vuln.cve)
                     exploit_count += 1
+                    if tracker:
+                        tracker.complete_exploit_generation(vuln.cve, True)
+                else:
+                    if tracker:
+                        tracker.complete_exploit_generation(vuln.cve, False)
+                        
                 self._record(self.exploit.name, target, exploit_result)
             else:
                 sleep_time = action.stealth * self.cfg.stealth_sleep_multiplier
@@ -244,14 +328,30 @@ class Coordinator:
                     "[phase-3] stealth mode — S={:.3f}, u1={:.2f}, sleeping {:.1f}s",
                     state.suspicion, action.attack_intensity, sleep_time,
                 )
+                self._emit_progress("exploitation", progress, f"Stealth mode - suspicion too high ({state.suspicion:.3f})")
+                if tracker:
+                    tracker.warning(f"Stealth mode activated for {vuln.cve}")
                 await asyncio.sleep(min(sleep_time, 5.0))
 
             self.viz.add_event(self._elapsed(), vuln.cve, "exploit")
             self.viz.plot_all()
 
+        self._emit_progress("hjb_evaluation", 90.0, "Evaluating HJB optimal policy...")
+        if tracker:
+            tracker.start_hjb_evaluation()
+        
+        final_state = self.get_system_state()
+        summary["knowledge_final"] = final_state.knowledge
+        summary["suspicion_mean"] = final_state.suspicion
+        summary["access_global"] = final_state.access
+        
+        if tracker:
+            tracker.complete_hjb_evaluation()
+
         summary["plots"] = {k: str(v) for k, v in self.viz.plot_all().items()}
         summary["duration"] = time.time() - self._start_time
 
+        self._emit_progress("complete", 100.0, "Scan completed successfully")
         logger.info(
             "=== Episode {} complete in {:.1f}s  hosts={} vulns={} exploits={} ===",
             self._episode, summary["duration"],
@@ -321,22 +421,26 @@ class Coordinator:
 async def _main() -> None:
     import sys
     target = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
+    
     coordinator = Coordinator.from_defaults(target)
-    summary = await coordinator.run(target)
+    tracker = ScanProgressTracker()
+    coordinator.set_progress_tracker(tracker)
 
-    from rich.console import Console
-    from rich.table import Table
+    with tracker.live():
+        summary = await coordinator.run(target)
 
-    console = Console()
-    table = Table(title=f"BlackPanther Run Summary — {target}")
-    table.add_column("Metric", style="cyan")
-    table.add_column("Value", style="green")
-    table.add_row("Hosts discovered", str(len(summary["hosts"])))
-    table.add_row("Vulnerabilities", str(len(summary["vulns"])))
-    table.add_row("Exploits generated", str(len(summary["exploits"])))
-    table.add_row("Duration", f"{summary['duration']:.1f}s")
-    table.add_row("Plots", ", ".join(summary["plots"].keys()))
-    console.print(table)
+    tracker.console.print_summary(summary)
+
+
+async def run_with_progress(target: str, progress_callback: Optional[ProgressCallback] = None) -> Dict[str, Any]:
+    """Run scan with optional progress callback (for API integration)."""
+    coordinator = Coordinator.from_defaults(target)
+    coordinator.disable_rich_console()
+    
+    if progress_callback:
+        coordinator.add_progress_callback(progress_callback)
+    
+    return await coordinator.run(target)
 
 
 if __name__ == "__main__":

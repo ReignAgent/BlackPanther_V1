@@ -9,9 +9,11 @@ from .interfaces import LLMProvider, ReconBackend, VulnLookup
 from .memory import MemoryStore, Experience
 from .recon import ReconAgent, NmapBackend, SocketBackend
 from .scanner import ScannerAgent, Vuln, SearchsploitLookup, StaticVulnLookup
-from .exploit import ExploitAgent, DeepSeekProvider, StubLLMProvider
-from .coordinator import Coordinator, CoordinatorConfig
+from .exploit import ExploitAgent, DeepSeekProvider, MistralProvider, StubLLMProvider
+from .coordinator import Coordinator, CoordinatorConfig, run_with_progress
 from .visualizer import Visualizer
+from .console import ProgressConsole, ScanProgressTracker, TaskStatus
+from .report_generator import ReportGenerator, StubReportGenerator
 
 __all__ = [
     # Base
@@ -22,10 +24,15 @@ __all__ = [
     # Concrete providers
     "NmapBackend", "SocketBackend",
     "SearchsploitLookup", "StaticVulnLookup",
-    "DeepSeekProvider", "StubLLMProvider",
+    "DeepSeekProvider", "MistralProvider", "StubLLMProvider",
     # Agents
     "ReconAgent", "ScannerAgent", "ExploitAgent",
     # Infrastructure
     "MemoryStore", "Experience", "Vuln",
     "Coordinator", "CoordinatorConfig", "Visualizer",
+    "run_with_progress",
+    # Console
+    "ProgressConsole", "ScanProgressTracker", "TaskStatus",
+    # Report Generation
+    "ReportGenerator", "StubReportGenerator",
 ]
