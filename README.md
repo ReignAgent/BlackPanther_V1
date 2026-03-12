@@ -94,7 +94,7 @@ POST to `/api/v1/scan/start` with `{"target": "https://example.com"}`.
 ---
 ## WARNING!!!
 - Don't test it without any legal written permissions!
-- LLMs inside this is fine-tuned specially for generating real exploits! So proceed with legal permissions!
+- LLMs inside this are fine-tuned specially for generating real exploits! So proceed with legal permissions!
 ## License
 
 MIT © BlackPanther Research Team
