@@ -1,0 +1,90 @@
+# BlackPanther V2 - Kali Linux Edition
+# Production container with all security tools + mathematical proof engine
+
+FROM kalilinux/kali-rolling
+
+LABEL maintainer="ReignAgent Research"
+LABEL description="BlackPanther V2 - Autonomous AI Penetration Testing Agent (Kali)"
+LABEL version="2.0.0"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /blackpanther
+
+# Core security tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Python
+    python3 \
+    python3-dev \
+    python3-pip \
+    python3-venv \
+    # Network recon
+    nmap \
+    masscan \
+    netcat-traditional \
+    # Exploitation
+    exploitdb \
+    hydra \
+    john \
+    sqlmap \
+    # Brute force / fuzzing
+    gobuster \
+    dirb \
+    wfuzz \
+    # Utilities
+    curl \
+    wget \
+    git \
+    vim \
+    tmux \
+    iputils-ping \
+    dnsutils \
+    iproute2 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Virtual environment
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
+# Install dependencies (cached layer)
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy project
+COPY . .
+RUN pip install --no-cache-dir -e .
+
+# Directories for runtime data
+RUN mkdir -p /blackpanther/data/exploits \
+             /blackpanther/output/proofs \
+             /blackpanther/output/exploits \
+             /blackpanther/logs
+
+# Update exploit-db
+RUN cd /usr/share/exploitdb && git pull || true
+# Entrypoint
+RUN printf '#!/bin/bash\n\
+echo "============================================"\n\
+echo "  BlackPanther V2 — Kali Rolling"\n\
+echo "  Version: 2.0.0"\n\
+echo "  Arch:    $(uname -m)"\n\
+echo "============================================"\n\
+source /venv/bin/activate\n\
+if [ -f /blackpanther/.env ]; then\n\
+    set -a; source /blackpanther/.env; set +a\n\
+    echo "[+] Environment loaded"\n\
+fi\n\
+echo "[*] Tools:"\n\
+command -v nmap        >/dev/null && echo "  + nmap"        || echo "  - nmap"\n\
+command -v searchsploit>/dev/null && echo "  + searchsploit"|| echo "  - searchsploit"\n\
+command -v hydra       >/dev/null && echo "  + hydra"       || echo "  - hydra"\n\
+command -v masscan     >/dev/null && echo "  + masscan"     || echo "  - masscan"\n\
+echo "============================================"\n\
+exec "$@"\n' > /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["python", "-m", "blackpanther.agents.coordinator"]

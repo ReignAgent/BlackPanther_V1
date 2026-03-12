@@ -1,0 +1,64 @@
+version: "3.8"
+
+services:
+  blackpanther:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.parrot
+    image: blackpanther/v2:latest
+    container_name: blackpanther
+    platform: linux/arm64 # For Apple Silicon
+    privileged: true
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - DAC_READ_SEARCH
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    volumes:
+      - ../.env:/blackpanther/.env:ro
+      - ../data:/blackpanther/data
+      - ../logs:/blackpanther/logs
+      - ../src:/blackpanther/src
+      - ../tests:/blackpanther/tests
+      - ../notebooks:/blackpanther/notebooks
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw # For GUI tools
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - PYTHONPATH=/blackpanther
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+    stdin_open: true
+    tty: true
+
+  blackpanther-kali:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.kali
+    image: blackpanther/v2-kali:latest
+    container_name: blackpanther-kali
+    platform: linux/arm64
+    privileged: true
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - ../.env:/blackpanther/.env:ro
+      - ../data:/blackpanther/data
+      - ../logs:/blackpanther/logs
+      - ../output:/blackpanther/output
+      - ../src:/blackpanther/src
+      - ../tests:/blackpanther/tests
+    environment:
+      - PYTHONPATH=/blackpanther
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+    stdin_open: true
+    tty: true

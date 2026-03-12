@@ -23,6 +23,11 @@ data/models/*
 data/vector_store/*
 !.gitkeep
 
+# Output (generated artifacts)
+output/exploits/
+output/proofs/
+output/web_reports/
+
 # Environment
 .env
 .env.local
