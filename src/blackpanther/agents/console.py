@@ -230,16 +230,49 @@ class ProgressConsole:
 
     def print_summary(self, results: Dict[str, Any]) -> None:
         """Print a final summary table."""
-        table = Table(title=f"{self.title} - Run Summary", border_style="cyan")
+        is_web = results.get("mode") == "web"
+        title_suffix = "Web App Attack" if is_web else "Run"
+        table = Table(title=f"{self.title} - {title_suffix} Summary", border_style="cyan")
         table.add_column("Metric", style="cyan")
         table.add_column("Value", style="green")
+
+        table.add_row("Mode", "[bold magenta]WEB APP[/bold magenta]" if is_web else "NETWORK")
+        table.add_row("Target", results.get("target", "unknown"))
 
         if "hosts" in results:
             table.add_row("Hosts Discovered", str(len(results["hosts"])))
         if "vulns" in results:
-            table.add_row("Vulnerabilities", str(len(results["vulns"])))
+            table.add_row("Network CVEs", str(len(results["vulns"])))
+
+        web_vulns = results.get("web_vulns", [])
+        if web_vulns:
+            total = len(web_vulns)
+            crit = sum(1 for v in web_vulns if v.get("severity", 0) >= 9.0)
+            high = sum(1 for v in web_vulns if 7.0 <= v.get("severity", 0) < 9.0)
+            med = sum(1 for v in web_vulns if 4.0 <= v.get("severity", 0) < 7.0)
+            low = sum(1 for v in web_vulns if v.get("severity", 0) < 4.0)
+            cats = list({v.get("category", "") for v in web_vulns})
+
+            table.add_row(
+                "Web Vulnerabilities",
+                f"[bold red]{total}[/bold red]"
+            )
+            table.add_row(
+                "  Severity",
+                f"[red]{crit} CRIT[/red] / [yellow]{high} HIGH[/yellow] / "
+                f"[blue]{med} MED[/blue] / [dim]{low} LOW[/dim]"
+            )
+            table.add_row("  Categories", ", ".join(cats))
+
         if "exploits" in results:
             table.add_row("Exploits Generated", str(len(results["exploits"])))
+
+        if "web_recon" in results:
+            recon = results["web_recon"]
+            table.add_row("Endpoints Mapped", str(recon.get("total_endpoints", 0)))
+            table.add_row("Hidden Files", str(recon.get("hidden_files", 0)))
+            table.add_row("API Endpoints", str(recon.get("api_endpoints", 0)))
+
         if "knowledge_final" in results:
             table.add_row("Final Knowledge", f"{results['knowledge_final']:.2f}")
         if "suspicion_mean" in results:
@@ -248,6 +281,8 @@ class ProgressConsole:
             table.add_row("Global Access", f"{results['access_global']:.3f}")
         if "duration" in results:
             table.add_row("Duration", f"{results['duration']:.1f}s")
+        if "web_report" in results:
+            table.add_row("Report", str(results["web_report"]))
 
         task_summary = {
             "success": sum(1 for t in self.tasks.values() if t.status == TaskStatus.SUCCESS),
@@ -263,6 +298,48 @@ class ProgressConsole:
 
         self.console.print()
         self.console.print(table)
+
+        if web_vulns:
+            self._print_vuln_details(web_vulns)
+
+    def _print_vuln_details(self, web_vulns: list) -> None:
+        """Print detailed vulnerability findings."""
+        vuln_table = Table(
+            title="Vulnerability Findings",
+            border_style="red",
+            show_lines=True,
+        )
+        vuln_table.add_column("#", style="dim", width=3)
+        vuln_table.add_column("Severity", width=8)
+        vuln_table.add_column("Category", width=12, style="cyan")
+        vuln_table.add_column("Title", ratio=2)
+        vuln_table.add_column("OWASP", width=20, style="dim")
+        vuln_table.add_column("Evidence", ratio=2, style="dim")
+
+        sorted_vulns = sorted(web_vulns, key=lambda v: v.get("severity", 0), reverse=True)
+
+        for i, v in enumerate(sorted_vulns[:30], 1):
+            sev = v.get("severity", 0)
+            if sev >= 9.0:
+                sev_str = f"[bold red]{sev:.1f}[/bold red]"
+            elif sev >= 7.0:
+                sev_str = f"[red]{sev:.1f}[/red]"
+            elif sev >= 4.0:
+                sev_str = f"[yellow]{sev:.1f}[/yellow]"
+            else:
+                sev_str = f"[dim]{sev:.1f}[/dim]"
+
+            vuln_table.add_row(
+                str(i),
+                sev_str,
+                v.get("category", ""),
+                v.get("title", ""),
+                v.get("owasp", ""),
+                v.get("evidence", "")[:80],
+            )
+
+        self.console.print()
+        self.console.print(vuln_table)
 
 
 class ScanProgressTracker:
@@ -320,6 +397,43 @@ class ScanProgressTracker:
         """Handle LLM provider switch."""
         self.console.llm_switch_notification(from_provider, to_provider, reason)
         self._current_llm = to_provider
+
+    def start_web_recon(self, target: str) -> None:
+        """Start web application reconnaissance phase."""
+        self.console.add_task("web_recon", f"Deep web recon on {target}...", TaskStatus.RUNNING)
+        self.console.log("Crawling endpoints, fingerprinting tech stack, discovering hidden files", "info")
+
+    def complete_web_recon(self, endpoint_count: int, hidden_count: int) -> None:
+        """Complete web reconnaissance phase."""
+        self.console.update_task(
+            "web_recon", TaskStatus.SUCCESS,
+            f"Mapped {endpoint_count} endpoints, {hidden_count} hidden files",
+        )
+
+    def start_web_attack(self) -> None:
+        """Start web attack modules."""
+        self.console.add_task("web_attack", "Running 11 web attack modules...", TaskStatus.RUNNING)
+        self.console.log(
+            "SQLi | XSS | Auth | JWT | IDOR | Traversal | Disclosure | NoSQLi | SSRF | API | Misconfig",
+            "info",
+        )
+
+    def complete_web_attack(
+        self, total: int, critical: int, high: int, categories: list,
+    ) -> None:
+        """Complete web attack phase."""
+        if total == 0:
+            self.console.update_task("web_attack", TaskStatus.WARNING, "No vulnerabilities found")
+        else:
+            self.console.update_task(
+                "web_attack", TaskStatus.SUCCESS,
+                f"{total} vulns ({critical} crit, {high} high) across {len(categories)} categories",
+            )
+            if critical > 0:
+                self.console.log(
+                    f"[red bold]CRITICAL:[/red bold] {critical} critical vulnerabilities found!",
+                    "error",
+                )
 
     def start_hjb_evaluation(self) -> None:
         """Start HJB policy evaluation."""

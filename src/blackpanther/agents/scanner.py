@@ -87,8 +87,20 @@ class SearchsploitLookup(VulnLookup):
 
 _KNOWN_VULNS: Dict[str, List[Dict[str, Any]]] = {
     "ssh": [{"cve": "CVE-2023-38408", "severity": 7.5, "title": "OpenSSH Pre-Auth Double Free"}],
-    "http": [{"cve": "CVE-2021-41773", "severity": 9.8, "title": "Apache Path Traversal"}],
-    "https": [{"cve": "CVE-2014-0160", "severity": 7.5, "title": "OpenSSL Heartbleed"}],
+    "http": [
+        {"cve": "CVE-2021-41773", "severity": 9.8, "title": "Apache Path Traversal"},
+        {"cve": "CVE-2021-44228", "severity": 10.0, "title": "Log4Shell RCE"},
+        {"cve": "CVE-2023-44487", "severity": 7.5, "title": "HTTP/2 Rapid Reset DoS"},
+        {"cve": "CVE-2024-3400", "severity": 10.0, "title": "PAN-OS Command Injection"},
+    ],
+    "https": [
+        {"cve": "CVE-2014-0160", "severity": 7.5, "title": "OpenSSL Heartbleed"},
+        {"cve": "CVE-2022-0778", "severity": 7.5, "title": "OpenSSL Infinite Loop DoS"},
+    ],
+    "http-proxy": [
+        {"cve": "CVE-2021-44228", "severity": 10.0, "title": "Log4Shell RCE (proxy)"},
+        {"cve": "CVE-2023-46604", "severity": 10.0, "title": "Apache ActiveMQ RCE"},
+    ],
     "smb": [{"cve": "CVE-2017-0144", "severity": 9.8, "title": "EternalBlue SMBv1 RCE"}],
     "mysql": [{"cve": "CVE-2012-2122", "severity": 7.5, "title": "MySQL Auth Bypass"}],
     "redis": [{"cve": "CVE-2022-0543", "severity": 10.0, "title": "Redis Lua Sandbox Escape"}],
@@ -97,6 +109,14 @@ _KNOWN_VULNS: Dict[str, List[Dict[str, Any]]] = {
     "postgresql": [{"cve": "CVE-2019-9193", "severity": 9.0, "title": "PostgreSQL COPY FROM PROGRAM"}],
     "mongodb": [{"cve": "CVE-2020-7921", "severity": 8.1, "title": "MongoDB Auth Bypass"}],
     "vnc": [{"cve": "CVE-2019-15681", "severity": 7.5, "title": "LibVNC Memory Leak"}],
+    "nodejs": [
+        {"cve": "CVE-2023-44487", "severity": 7.5, "title": "Node.js HTTP/2 Rapid Reset"},
+        {"cve": "CVE-2024-22019", "severity": 7.5, "title": "Node.js HTTP Request Smuggling"},
+    ],
+    "express": [
+        {"cve": "CVE-2024-29041", "severity": 6.1, "title": "Express.js Open Redirect"},
+        {"cve": "CVE-2022-24999", "severity": 7.5, "title": "Express qs Prototype Pollution"},
+    ],
 }
 
 

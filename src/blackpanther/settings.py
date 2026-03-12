@@ -81,10 +81,28 @@ class Settings(BaseSettings):
     hjb_gamma: float = Field(0.95, ge=0.0, le=1.0)
     hjb_dt: float = Field(0.1, gt=0)
 
+    # ---- Web Attack -------------------------------------------------
+    web_concurrent_requests: int = Field(10, ge=1, le=100)
+    web_request_timeout: float = Field(10.0, gt=0)
+    web_request_delay: float = Field(0.1, ge=0.0, description="Delay between requests (stealth)")
+    web_user_agent: str = Field(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+    web_max_crawl_depth: int = Field(3, ge=1, le=10)
+    web_max_pages: int = Field(200, ge=10, le=5000)
+    web_attack_threads: int = Field(5, ge=1, le=50)
+    web_follow_redirects: bool = Field(True)
+    web_verify_ssl: bool = Field(False, description="Disable for self-signed certs")
+
+    # ---- Visualization ---------------------------------------------
+    realtime_plots: bool = Field(True, description="Live-updating matplotlib windows (disable for headless/API)")
+
     # ---- Storage --------------------------------------------------
     db_path: str = Field("data/memory.db")
     output_dir: str = Field("output/proofs")
     exploit_sandbox_dir: str = Field("output/exploits")
+    web_report_dir: str = Field("output/web_reports")
     log_level: str = Field("INFO")
 
     # ---- Retry / Resilience ---------------------------------------

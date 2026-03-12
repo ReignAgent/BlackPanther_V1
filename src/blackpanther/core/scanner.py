@@ -22,16 +22,17 @@ from .access import AccessPropagation
 logger = logging.getLogger(__name__)
 
 COMMON_PORTS = [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143,
-                443, 445, 993, 995, 1723, 3306, 3389, 5432, 5900,
-                6379, 8080, 8443, 27017]
+                443, 445, 993, 995, 1723, 3000, 3306, 3389, 5432,
+                5900, 6379, 8000, 8080, 8443, 8888, 9000, 27017]
 
 SERVICE_MAP: Dict[int, str] = {
     21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 53: "dns",
     80: "http", 110: "pop3", 111: "rpcbind", 135: "msrpc",
     139: "netbios-ssn", 143: "imap", 443: "https", 445: "smb",
-    993: "imaps", 995: "pop3s", 1723: "pptp", 3306: "mysql",
-    3389: "rdp", 5432: "postgresql", 5900: "vnc", 6379: "redis",
-    8080: "http-proxy", 8443: "https-alt", 27017: "mongodb",
+    993: "imaps", 995: "pop3s", 1723: "pptp", 3000: "http",
+    3306: "mysql", 3389: "rdp", 5432: "postgresql", 5900: "vnc",
+    6379: "redis", 8000: "http", 8080: "http-proxy",
+    8443: "https-alt", 8888: "http", 9000: "http", 27017: "mongodb",
 }
 
 

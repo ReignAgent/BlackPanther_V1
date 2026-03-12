@@ -1,28 +1,62 @@
 """Real-Time Mathematical Proof Visualizer
 
-Generates publication/investor-grade plots for the four coupled models.
-All plots are saved to ``output/proofs/`` after every agent action so
-the mathematical proof evolves in real time.
+Generates publication-grade plots for the five coupled models.
+All plots are saved to ``output/proofs/`` after every agent action
+so the mathematical proof evolves in real time.
+
+Two rendering modes:
+  realtime=True  — persistent figure windows that update live via
+                   plt.ion() + plt.pause(); also saves PNGs to disk.
+  realtime=False — headless Agg backend, create-save-close per call
+                   (suitable for API / Celery / CI).
 
 Plots produced:
-  knowledge.png    -- K(t) with growth/decay decomposition
-  suspicion.png    -- 2-D heatmap with gradient quiver + hotspots
-  access.png       -- Horizontal bar chart per host
-  hjb_policy.png   -- Quiver plot of optimal (attack, stealth) policy
+  knowledge.png      -- K(t) with growth/decay decomposition
+  suspicion.png      -- 2-D heatmap with gradient quiver + hotspots
+  suspicion_3d.png   -- 3-D surface of the suspicion field
+  access.png         -- Horizontal bar chart per host
+  hjb_policy.png     -- Quiver plot of optimal (attack, stealth) policy
 """
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib
-matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 from loguru import logger
+
+# Backend selection must happen before importing pyplot.
+# We defer the import so the caller can set ``realtime`` first.
+_backend_configured = False
+
+
+def _configure_backend(realtime: bool) -> None:
+    global _backend_configured
+    if _backend_configured:
+        return
+    import matplotlib
+    if realtime:
+        try:
+            if sys.platform == "darwin":
+                matplotlib.use("macosx")
+            else:
+                matplotlib.use("TkAgg")
+        except ImportError:
+            matplotlib.use("Agg")
+            logger.warning("[viz] interactive backend unavailable, falling back to Agg")
+    else:
+        matplotlib.use("Agg")
+    _backend_configured = True
+
+
+# We need these imports after _configure_backend, but they are
+# always available as module-level names after __init__ calls
+# _configure_backend.  Lazy-import pattern used below.
+import matplotlib
+import matplotlib.pyplot as plt
 
 from blackpanther.core.access import AccessPropagation
 from blackpanther.core.control import HJBController
@@ -31,7 +65,7 @@ from blackpanther.core.suspicion import SuspicionField
 
 
 class Visualizer:
-    """Generates and saves proof plots for the four math models.
+    """Generates and saves proof plots for the five math models.
 
     Args:
         k_model: Knowledge evolution instance.
@@ -40,6 +74,7 @@ class Visualizer:
         hjb: HJB controller (may be ``None`` if not yet solved).
         output_dir: Where to write PNGs.
         dpi: Resolution for saved figures.
+        realtime: If True, open persistent live windows AND save to disk.
     """
 
     def __init__(
@@ -50,7 +85,10 @@ class Visualizer:
         hjb: Optional[HJBController] = None,
         output_dir: str = "output/proofs",
         dpi: int = 150,
+        realtime: bool = False,
     ) -> None:
+        _configure_backend(realtime)
+
         self.k = k_model
         self.s = s_model
         self.a = a_model
@@ -58,7 +96,52 @@ class Visualizer:
         self.out = Path(output_dir)
         self.out.mkdir(parents=True, exist_ok=True)
         self.dpi = dpi
+        self._realtime = realtime
         self._event_markers: List[Tuple[float, str, str]] = []
+        self._figs: Dict[str, plt.Figure] = {}
+
+        if self._realtime:
+            plt.ion()
+
+    # ------------------------------------------------------------------
+    # Figure lifecycle helpers
+    # ------------------------------------------------------------------
+
+    def _get_or_create_fig(
+        self,
+        name: str,
+        figsize: Tuple[float, float] = (12, 8),
+        projection: Optional[str] = None,
+    ) -> Tuple[plt.Figure, Any]:
+        """Return a figure (persistent in real-time mode, ephemeral otherwise).
+
+        In real-time mode the same named window is reused and cleared
+        so the user sees a live-updating plot.
+        """
+        if self._realtime:
+            if name not in self._figs or not plt.fignum_exists(self._figs[name].number):
+                self._figs[name] = plt.figure(num=name, figsize=figsize)
+            fig = self._figs[name]
+            fig.clf()
+        else:
+            fig = plt.figure(figsize=figsize)
+
+        if projection:
+            ax = fig.add_subplot(111, projection=projection)
+        else:
+            ax = None
+        return fig, ax
+
+    def _refresh(self, fig: plt.Figure, path: Path) -> None:
+        """Save to disk and, if real-time, push update to screen."""
+        fig.savefig(path, dpi=self.dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
+        if self._realtime:
+            fig.canvas.draw_idle()
+            fig.canvas.flush_events()
+            plt.pause(0.05)
+        else:
+            plt.close(fig)
+        logger.debug("[viz] saved {}", path)
 
     def add_event(self, time: float, label: str, agent: str) -> None:
         """Record an event (recon / scan / exploit) for annotation."""
@@ -71,9 +154,10 @@ class Visualizer:
     def plot_knowledge_curve(self) -> Path:
         """K(t) line plot with growth/decay decomposition."""
         history = self.k.history
+        path = self.out / "knowledge.png"
         if len(history) < 2:
             logger.debug("[viz] not enough K history to plot")
-            return self.out / "knowledge.png"
+            return path
 
         ts = [s.timestamp for s in history]
         ks = [s.knowledge for s in history]
@@ -82,7 +166,9 @@ class Visualizer:
         from_def = [s.metadata.get("from_defense", 0) for s in history]
 
         with plt.style.context("dark_background"):
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), gridspec_kw={"height_ratios": [3, 1]})
+            fig, _ = self._get_or_create_fig("knowledge", (12, 8))
+            ax1 = fig.add_subplot(2, 1, 1)
+            ax2 = fig.add_subplot(2, 1, 2)
 
             ax1.plot(ts, ks, linewidth=2.5, color="#00e5ff", label="K(t)")
             ax1.fill_between(ts, 0, ks, alpha=0.15, color="#00e5ff")
@@ -110,14 +196,11 @@ class Visualizer:
             ax2.grid(alpha=0.2)
 
             fig.tight_layout()
-            path = self.out / "knowledge.png"
-            fig.savefig(path, dpi=self.dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
-            plt.close(fig)
-        logger.debug("[viz] saved {}", path)
+            self._refresh(fig, path)
         return path
 
     # ------------------------------------------------------------------
-    # 2. Suspicion Heatmap  (investor-facing proof)
+    # 2. Suspicion Heatmap (2-D)
     # ------------------------------------------------------------------
 
     def plot_suspicion_heatmap(self) -> Path:
@@ -127,7 +210,8 @@ class Visualizer:
         max_s = float(np.max(field))
 
         with plt.style.context("dark_background"):
-            fig, ax = plt.subplots(figsize=(12, 10))
+            fig, _ = self._get_or_create_fig("suspicion_2d", (12, 10))
+            ax = fig.add_subplot(111)
 
             im = ax.imshow(
                 field, cmap="inferno", origin="lower",
@@ -151,7 +235,8 @@ class Visualizer:
             if len(hotspot_x) > 0:
                 ax.scatter(
                     hotspot_x, hotspot_y, s=60, facecolors="none",
-                    edgecolors="#ff1744", linewidths=1.5, label=f"Hotspots (S>0.7): {len(hotspot_x)}",
+                    edgecolors="#ff1744", linewidths=1.5,
+                    label=f"Hotspots (S>0.7): {len(hotspot_x)}",
                 )
                 ax.legend(fontsize=10, loc="upper right")
 
@@ -179,31 +264,119 @@ class Visualizer:
 
             fig.tight_layout()
             path = self.out / "suspicion.png"
-            fig.savefig(path, dpi=self.dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
-            plt.close(fig)
-        logger.debug("[viz] saved {}", path)
+            self._refresh(fig, path)
         return path
 
     # ------------------------------------------------------------------
-    # 3. Access per Host
+    # 3. Suspicion 3-D Surface  (NEW)
+    # ------------------------------------------------------------------
+
+    def plot_suspicion_3d(self) -> Path:
+        """3-D surface of the suspicion field with threshold plane."""
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — registers projection
+
+        field = self.s.field
+        mean_s = float(np.mean(field))
+        max_s = float(np.max(field))
+
+        x = np.arange(field.shape[1])
+        y = np.arange(field.shape[0])
+        X, Y = np.meshgrid(x, y)
+
+        with plt.style.context("dark_background"):
+            fig, _ = self._get_or_create_fig("suspicion_3d", (14, 10))
+            ax = fig.add_subplot(111, projection="3d")
+
+            surf = ax.plot_surface(
+                X, Y, field,
+                cmap="inferno",
+                vmin=0.0, vmax=1.0,
+                alpha=0.92,
+                rstride=max(1, field.shape[0] // 40),
+                cstride=max(1, field.shape[1] // 40),
+                edgecolor="none",
+                antialiased=True,
+            )
+
+            threshold_z = np.full_like(field, 0.7)
+            ax.plot_surface(
+                X, Y, threshold_z,
+                color="#ff1744",
+                alpha=0.15,
+                rstride=field.shape[0],
+                cstride=field.shape[1],
+            )
+
+            cbar = fig.colorbar(surf, ax=ax, shrink=0.55, pad=0.08, aspect=20)
+            cbar.set_label("Suspicion Level  S", fontsize=11)
+            cbar.ax.tick_params(labelsize=9)
+
+            hotspot_y, hotspot_x = np.where(field > 0.7)
+            if len(hotspot_x) > 0:
+                ax.scatter(
+                    hotspot_x, hotspot_y,
+                    field[hotspot_y, hotspot_x],
+                    c="#ff1744", s=25, alpha=0.9,
+                    depthshade=True, label=f"Hotspots: {len(hotspot_x)}",
+                )
+                ax.legend(fontsize=9, loc="upper left")
+
+            ax.set_xlabel("Network X", fontsize=11, labelpad=8)
+            ax.set_ylabel("Network Y", fontsize=11, labelpad=8)
+            ax.set_zlabel("Suspicion S", fontsize=11, labelpad=8)
+            ax.set_zlim(0, 1.0)
+
+            ax.set_title(
+                f"3D Suspicion Surface    mean={mean_s:.4f}   max={max_s:.4f}\n"
+                f"∂S/∂t = D∇²S + rS(1−S) − δKA + σξ",
+                fontsize=13, fontweight="bold", pad=15,
+            )
+
+            ax.view_init(elev=35, azim=-60)
+
+            stats_text = (
+                f"Grid: {field.shape[0]}x{field.shape[1]}\n"
+                f"Mean: {mean_s:.6f}\n"
+                f"Max:  {max_s:.6f}\n"
+                f"Std:  {float(np.std(field)):.6f}\n"
+                f"Hotspots(>0.7): {len(hotspot_x)}"
+            )
+            ax.text2D(
+                0.02, 0.95, stats_text, transform=ax.transAxes,
+                fontsize=9, verticalalignment="top",
+                bbox=dict(boxstyle="round,pad=0.4", facecolor="black", alpha=0.7),
+                family="monospace",
+            )
+
+            fig.tight_layout()
+            path = self.out / "suspicion_3d.png"
+            self._refresh(fig, path)
+        return path
+
+    # ------------------------------------------------------------------
+    # 4. Access per Host
     # ------------------------------------------------------------------
 
     def plot_access_bars(self) -> Path:
         """Horizontal bar chart of access level per host."""
         hosts = self.a.hosts
+        path = self.out / "access.png"
         if not hosts:
             logger.debug("[viz] no hosts for access plot")
-            return self.out / "access.png"
+            return path
 
         names = list(hosts.keys())
         values = [hosts[n].access for n in names]
         compromised = [hosts[n].compromised for n in names]
-        colors = ["#ff1744" if c else "#00e5ff" for c in compromised]
+        bar_colors = ["#ff1744" if c else "#00e5ff" for c in compromised]
 
         with plt.style.context("dark_background"):
-            fig, ax = plt.subplots(figsize=(10, max(4, len(names) * 0.5 + 2)))
+            fig, _ = self._get_or_create_fig(
+                "access", (10, max(4, len(names) * 0.5 + 2)),
+            )
+            ax = fig.add_subplot(111)
 
-            bars = ax.barh(names, values, color=colors, edgecolor="white", linewidth=0.3)
+            bars = ax.barh(names, values, color=bar_colors, edgecolor="white", linewidth=0.3)
             ax.axvline(0.5, color="#ffea00", linestyle="--", linewidth=1.2, alpha=0.7, label="Compromise threshold")
 
             for bar, val, comp in zip(bars, values, compromised):
@@ -226,14 +399,11 @@ class Visualizer:
             ax.grid(axis="x", alpha=0.2)
 
             fig.tight_layout()
-            path = self.out / "access.png"
-            fig.savefig(path, dpi=self.dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
-            plt.close(fig)
-        logger.debug("[viz] saved {}", path)
+            self._refresh(fig, path)
         return path
 
     # ------------------------------------------------------------------
-    # 4. HJB Policy Quiver
+    # 5. HJB Policy Quiver
     # ------------------------------------------------------------------
 
     def plot_hjb_policy(self, fixed_access: float = 0.3) -> Path:
@@ -261,13 +431,18 @@ class Visualizer:
                     stealth[j, i] = 0.5
 
         with plt.style.context("dark_background"):
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+            fig, _ = self._get_or_create_fig("hjb_policy", (16, 7))
+            ax1 = fig.add_subplot(1, 2, 1)
+            ax2 = fig.add_subplot(1, 2, 2)
 
             KK, SS = np.meshgrid(k_vals, s_vals)
 
             c1 = ax1.contourf(KK, SS, attack, levels=20, cmap="viridis")
-            ax1.quiver(KK[::2, ::2], SS[::2, ::2], attack[::2, ::2], np.zeros_like(attack[::2, ::2]),
-                       color="white", alpha=0.6, scale=15)
+            ax1.quiver(
+                KK[::2, ::2], SS[::2, ::2],
+                attack[::2, ::2], np.zeros_like(attack[::2, ::2]),
+                color="white", alpha=0.6, scale=15,
+            )
             fig.colorbar(c1, ax=ax1, label="Attack Intensity u₁")
             ax1.axhline(0.7, color="#ff1744", linestyle="--", linewidth=1.5, label="Suspicion threshold")
             ax1.set_xlabel("Knowledge  K", fontsize=12)
@@ -276,8 +451,11 @@ class Visualizer:
             ax1.legend(fontsize=9)
 
             c2 = ax2.contourf(KK, SS, stealth, levels=20, cmap="plasma")
-            ax2.quiver(KK[::2, ::2], SS[::2, ::2], np.zeros_like(stealth[::2, ::2]), stealth[::2, ::2],
-                       color="white", alpha=0.6, scale=15)
+            ax2.quiver(
+                KK[::2, ::2], SS[::2, ::2],
+                np.zeros_like(stealth[::2, ::2]), stealth[::2, ::2],
+                color="white", alpha=0.6, scale=15,
+            )
             fig.colorbar(c2, ax=ax2, label="Stealth Level u₂")
             ax2.axhline(0.7, color="#ff1744", linestyle="--", linewidth=1.5, label="Suspicion threshold")
             ax2.set_xlabel("Knowledge  K", fontsize=12)
@@ -292,9 +470,7 @@ class Visualizer:
             )
             fig.tight_layout()
             path = self.out / "hjb_policy.png"
-            fig.savefig(path, dpi=self.dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
-            plt.close(fig)
-        logger.debug("[viz] saved {}", path)
+            self._refresh(fig, path)
         return path
 
     def _plot_hjb_analytical(self, fixed_access: float) -> Path:
@@ -307,13 +483,17 @@ class Visualizer:
         stealth = np.clip(SS ** 0.5, 0, 1)
 
         with plt.style.context("dark_background"):
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+            fig, _ = self._get_or_create_fig("hjb_policy", (16, 7))
+            ax1 = fig.add_subplot(1, 2, 1)
+            ax2 = fig.add_subplot(1, 2, 2)
 
-            c1 = ax1.contourf(KK, SS, attack, levels=20, cmap="viridis")
             step = 3
-            ax1.quiver(KK[::step, ::step], SS[::step, ::step],
-                       attack[::step, ::step], np.zeros_like(attack[::step, ::step]),
-                       color="white", alpha=0.5, scale=15)
+            c1 = ax1.contourf(KK, SS, attack, levels=20, cmap="viridis")
+            ax1.quiver(
+                KK[::step, ::step], SS[::step, ::step],
+                attack[::step, ::step], np.zeros_like(attack[::step, ::step]),
+                color="white", alpha=0.5, scale=15,
+            )
             fig.colorbar(c1, ax=ax1, label="Attack Intensity u₁")
             ax1.axhline(0.7, color="#ff1744", linestyle="--", linewidth=1.5, label="S threshold=0.7")
             ax1.set_xlabel("Knowledge  K", fontsize=12)
@@ -322,9 +502,11 @@ class Visualizer:
             ax1.legend(fontsize=9)
 
             c2 = ax2.contourf(KK, SS, stealth, levels=20, cmap="plasma")
-            ax2.quiver(KK[::step, ::step], SS[::step, ::step],
-                       np.zeros_like(stealth[::step, ::step]), stealth[::step, ::step],
-                       color="white", alpha=0.5, scale=15)
+            ax2.quiver(
+                KK[::step, ::step], SS[::step, ::step],
+                np.zeros_like(stealth[::step, ::step]), stealth[::step, ::step],
+                color="white", alpha=0.5, scale=15,
+            )
             fig.colorbar(c2, ax=ax2, label="Stealth Level u₂")
             ax2.axhline(0.7, color="#ff1744", linestyle="--", linewidth=1.5, label="S threshold=0.7")
             ax2.set_xlabel("Knowledge  K", fontsize=12)
@@ -339,20 +521,19 @@ class Visualizer:
             )
             fig.tight_layout()
             path = self.out / "hjb_policy.png"
-            fig.savefig(path, dpi=self.dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
-            plt.close(fig)
-        logger.debug("[viz] saved {}", path)
+            self._refresh(fig, path)
         return path
 
     # ------------------------------------------------------------------
-    # Convenience
+    # Convenience — plot everything
     # ------------------------------------------------------------------
 
     def plot_all(self, fixed_access: float = 0.3) -> Dict[str, Path]:
-        """Generate all four plots and return their paths."""
+        """Generate all five plots and return their paths."""
         paths = {
             "knowledge": self.plot_knowledge_curve(),
             "suspicion": self.plot_suspicion_heatmap(),
+            "suspicion_3d": self.plot_suspicion_3d(),
             "access": self.plot_access_bars(),
             "hjb_policy": self.plot_hjb_policy(fixed_access),
         }

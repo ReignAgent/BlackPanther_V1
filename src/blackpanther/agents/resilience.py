@@ -12,6 +12,7 @@ import re
 import shutil
 from functools import wraps
 from typing import Any, Awaitable, Callable, Optional, Tuple, TypeVar
+from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -123,6 +124,7 @@ _CIDR_RE = re.compile(
 _HOST_RE = re.compile(
     r"^[a-zA-Z0-9._:-]+$"
 )
+_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
 def validate_target(target: str) -> str:
@@ -132,6 +134,8 @@ def validate_target(target: str) -> str:
       - IPv4 address (``192.168.1.1``)
       - CIDR notation (``10.0.0.0/24``)
       - Hostname (``web-server.local``)
+      - URL (``http://localhost:3000``)
+      - Host:port (``localhost:3000``)
 
     Raises:
         ValueError: If the target looks malicious or unparseable.
@@ -139,6 +143,14 @@ def validate_target(target: str) -> str:
     target = target.strip()
     if not target:
         raise ValueError("target must not be empty")
+
+    if _URL_RE.match(target):
+        parsed = urlparse(target)
+        if not parsed.hostname:
+            raise ValueError(f"invalid URL: {target!r}")
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"unsupported scheme: {parsed.scheme!r}")
+        return target
 
     if _CIDR_RE.match(target):
         ipaddress.ip_network(target, strict=False)
@@ -156,3 +168,31 @@ def validate_target(target: str) -> str:
     if len(target) > 253:
         raise ValueError(f"hostname too long ({len(target)} chars)")
     return target
+
+
+def is_web_target(target: str) -> bool:
+    """Return True if target is a URL or host:port likely serving HTTP."""
+    if _URL_RE.match(target):
+        return True
+    if ":" in target:
+        parts = target.rsplit(":", 1)
+        try:
+            port = int(parts[1])
+            return port in (80, 443, 3000, 8000, 8080, 8443, 8888, 9000)
+        except (ValueError, IndexError):
+            pass
+    return False
+
+
+def normalize_base_url(target: str) -> str:
+    """Convert a target string into a proper base URL.
+
+    ``localhost:3000`` -> ``http://localhost:3000``
+    ``https://juice.shop`` -> ``https://juice.shop``
+    ``192.168.1.5`` -> ``http://192.168.1.5``
+    """
+    if _URL_RE.match(target):
+        return target.rstrip("/")
+    if ":" in target:
+        return f"http://{target}".rstrip("/")
+    return f"http://{target}".rstrip("/")
