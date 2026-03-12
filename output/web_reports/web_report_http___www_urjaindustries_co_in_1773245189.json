@@ -1,0 +1,134 @@
+{
+  "target": "http://www.urjaindustries.co.in",
+  "timestamp": 1773245189.074147,
+  "total_vulnerabilities": 5,
+  "severity_breakdown": {
+    "critical": 0,
+    "high": 0,
+    "medium": 5,
+    "low": 0
+  },
+  "categories": [
+    "xss",
+    "disclosure",
+    "misconfig"
+  ],
+  "module_results": {
+    "sqli": {
+      "findings": 0,
+      "noise_level": 0.4
+    },
+    "xss": {
+      "findings": 2,
+      "noise_level": 0.3
+    },
+    "auth": {
+      "findings": 0,
+      "noise_level": 0.5
+    },
+    "jwt": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "idor": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "traversal": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "disclosure": {
+      "findings": 2,
+      "noise_level": 0.1
+    },
+    "nosqli": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "ssrf": {
+      "findings": 0,
+      "noise_level": 0.4
+    },
+    "api": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "misconfig": {
+      "findings": 1,
+      "noise_level": 0.1
+    }
+  },
+  "vulnerabilities": [
+    {
+      "title": "XSS - Potential DOM-based",
+      "category": "xss",
+      "severity": 5.0,
+      "url": "http://www.urjaindustries.co.in/#/search?q=<img src=x onerror=alert(1)>",
+      "method": "GET",
+      "parameter": "fragment",
+      "payload": "q=<img src=x onerror=alert(1)>",
+      "evidence": "SPA renders fragment parameters without apparent sanitization",
+      "remediation": "Use DOMPurify to sanitize fragment-based routing parameters.",
+      "cwe": "CWE-79",
+      "owasp": "A03:2021 Injection",
+      "confirmed": false
+    },
+    {
+      "title": "XSS - Potential DOM-based",
+      "category": "xss",
+      "severity": 5.0,
+      "url": "http://www.urjaindustries.co.in/#/track-result?id=<script>alert(1)</script>",
+      "method": "GET",
+      "parameter": "fragment",
+      "payload": "id=<script>alert(1)</script>",
+      "evidence": "SPA renders fragment parameters without apparent sanitization",
+      "remediation": "Use DOMPurify to sanitize fragment-based routing parameters.",
+      "cwe": "CWE-79",
+      "owasp": "A03:2021 Injection",
+      "confirmed": false
+    },
+    {
+      "title": "Error Disclosure - Invalid user ID",
+      "category": "disclosure",
+      "severity": 5.0,
+      "url": "http://www.urjaindustries.co.in/api/Users/0",
+      "method": "GET",
+      "parameter": "",
+      "payload": "",
+      "evidence": "Verbose error message / stack trace exposed",
+      "remediation": "Use generic error pages. Never expose stack traces in production.",
+      "cwe": "CWE-209",
+      "owasp": "A05:2021 Security Misconfiguration",
+      "confirmed": true
+    },
+    {
+      "title": "Dangerous HTTP Methods Allowed: TRACE",
+      "category": "misconfig",
+      "severity": 4.5,
+      "url": "http://www.urjaindustries.co.in/api/Products",
+      "method": "OPTIONS",
+      "parameter": "",
+      "payload": "",
+      "evidence": "Allow: OPTIONS, TRACE, GET, HEAD, POST",
+      "remediation": "Disable unnecessary HTTP methods. Restrict PUT/DELETE to authenticated users.",
+      "cwe": "CWE-749",
+      "owasp": "A05:2021 Security Misconfiguration",
+      "confirmed": true
+    },
+    {
+      "title": "Missing Security Headers (4)",
+      "category": "disclosure",
+      "severity": 4.0,
+      "url": "http://www.urjaindustries.co.in",
+      "method": "GET",
+      "parameter": "",
+      "payload": "",
+      "evidence": "Missing: X-Content-Type-Options, X-Frame-Options, Content-Security-Policy, Strict-Transport-Security",
+      "remediation": "Add all recommended security headers: CSP, HSTS, X-Content-Type-Options, X-Frame-Options.",
+      "cwe": "CWE-693",
+      "owasp": "A05:2021 Security Misconfiguration",
+      "confirmed": true
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "target": "http://localhost:3000",
+  "timestamp": 1773296829.7598941,
+  "total_vulnerabilities": 0,
+  "severity_breakdown": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "categories": [],
+  "module_results": {
+    "sqli": {
+      "findings": 0,
+      "noise_level": 0.4
+    },
+    "xss": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "auth": {
+      "findings": 0,
+      "noise_level": 0.5
+    },
+    "jwt": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "idor": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "traversal": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "disclosure": {
+      "findings": 0,
+      "noise_level": 0.1
+    },
+    "nosqli": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "ssrf": {
+      "findings": 0,
+      "noise_level": 0.4
+    },
+    "api": {
+      "findings": 0,
+      "noise_level": 0.3
+    },
+    "misconfig": {
+      "findings": 0,
+      "noise_level": 0.1
+    }
+  },
+  "vulnerabilities": []
+}
